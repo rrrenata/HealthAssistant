@@ -41,7 +41,20 @@ npm run test:coverage
 ```
 ## 🤖 Как Пользоваться Ботом
 
-/start
-/symptoms_check
-/find_doctor
+/start -начало
 
+/symptoms_check - узнать диагноз 
+
+/find_doctor - найти доктора
+
+## Примеры использования 
+/start
+![start](<images/start.png>) 
+/symptoms_check 
+![symptoms](<images/symptoms.png>) 
+/find_doctor
+![doctors](<images/doctors.png>) 
+1
+![1](<images/1.png>) 
+2
+![2](<images/2.png>) 
