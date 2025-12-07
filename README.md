@@ -13,7 +13,7 @@
 ### 1. Клонирование репозитория
 
 ```bash
-git clone <URL_РЕПОЗИТОРИЯ>
+git clone https://github.com/rrrenata/HealthAssistant.git
 cd HealthAssistant
 ```
 ### 2. Установка зависимостей
