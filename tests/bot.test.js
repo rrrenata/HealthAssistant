@@ -1,6 +1,4 @@
 import { jest } from '@jest/globals';
-
-// --- МОКИ (Mocks) ---
 const mockBotInstance = {
   onText: jest.fn(),
   on: jest.fn(),
@@ -27,7 +25,6 @@ const logger = {
 };
 jest.unstable_mockModule('../src/utils/logger.js', () => ({ logger }));
 
-// ИСПРАВЛЕНИЕ ОШИБКИ: Мокирование всех экспортов из sessionManager.js
 const sessionManager = {
   getStep: jest.fn(),
   setStep: jest.fn(),
@@ -35,17 +32,13 @@ const sessionManager = {
 };
 jest.unstable_mockModule('../src/utils/sessionManager.js', () => (sessionManager));
 
-
-// --- ИМПОРТЫ ДАННЫХ И ТЕСТИРУЕМЫХ МОДУЛЕЙ ---
 const { diagnosisTree: realDiagnosisTree } = 
     await import('../src/diagnosisTree.js'); 
 
-// Импортируем clearSession (это уже мокированная функция)
+// Импортируем clearSession 
 const { clearSession } = await import('../src/utils/sessionManager.js');
-
 const { default: runServer } = await import('../src/server.js');
 const { handleBotError } = await import('../src/utils/errorHandler.js');
-
 
 describe('HealthAssistant Bot Integration Tests (Server, Session, Data)', () => {
   let listeners = {};
@@ -67,7 +60,6 @@ describe('HealthAssistant Bot Integration Tests (Server, Session, Data)', () => 
     process.env.TELEGRAM_BOT_TOKEN = 'TEST_TOKEN_123';
   });
 
-  // --- Вспомогательные функции для имитации действий пользователя ---
   const sendText = (text, chatId = 123) => {
     const msg = { chat: { id: chatId }, text };
     const commandHandler = textListeners.find(l => l.regex.test(text));
@@ -75,6 +67,13 @@ describe('HealthAssistant Bot Integration Tests (Server, Session, Data)', () => 
       commandHandler.handler(msg);
       return;
     }
+    if (listeners['message']) {
+      listeners['message'](msg);
+    }
+  };
+
+  const sendNonText = (chatId = 123) => {
+    const msg = { chat: { id: chatId } }; // Нет text (для фото, стикеров и т.д.)
     if (listeners['message']) {
       listeners['message'](msg);
     }
@@ -102,7 +101,7 @@ describe('HealthAssistant Bot Integration Tests (Server, Session, Data)', () => 
     );
   });
   
-  test('Diagnostic Flow: Should cover isDiagnosis branch in sendQuestion (server.js lines 30-32)', async () => {
+  test('Diagnostic Flow: Should cover isDiagnosis branch in sendQuestion (server.js lines 53-55)', async () => {
     runServer();
     
     realDiagnosisTree.temp_diag_step = {
@@ -126,7 +125,6 @@ describe('HealthAssistant Bot Integration Tests (Server, Session, Data)', () => 
   test('Session Logic: Text input without active session', async () => {
     runServer();
     clearSession(123); 
-    // Для этого теста getStep должен вернуть undefined
     sessionManager.getStep.mockReturnValueOnce(undefined);
     
     sendText('Просто привет');
@@ -195,13 +193,59 @@ describe('HealthAssistant Bot Integration Tests (Server, Session, Data)', () => 
       expect.stringContaining('Ошибка сценария')
     );
   });
+
+  test('Unknown Command Handling: Should respond to invalid /command', async () => {
+    runServer();
+    sendText('/wrong_command');
+    
+    expect(mockBotInstance.sendMessage).toHaveBeenCalledWith(
+      123,
+      'Неизвестная команда. Попробуй /start, /symptoms_check или /find_doctor.'
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Неизвестная команда')
+    );
+  });
+
+  test('Non-Text Message Handling: Should respond to messages without text (e.g., photo, sticker)', async () => {
+    runServer();
+    sendNonText();
+    
+    expect(mockBotInstance.sendMessage).toHaveBeenCalledWith(
+      123,
+      'Извини, я понимаю только текст и команды. Попробуй /start.'
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Non-text сообщение')
+    );
+  });
+
+  test('Polling Error Handling: Should log polling errors', async () => {
+    runServer();
+    const pollingError = new Error('Test Polling Error');
+    listeners['polling_error'](pollingError);
+    
+    expect(logger.error).toHaveBeenCalledWith(
+      'Polling error:',
+      pollingError
+    );
+  });
+
+  test('Bot Error Handling: Should log general bot errors', async () => {
+    runServer();
+    const botError = new Error('Test Bot Error');
+    listeners['error'](botError);
+    
+    expect(logger.error).toHaveBeenCalledWith(
+      'Bot error:',
+      botError
+    );
+  });
 });
 
-// --- ТЕСТЫ ERRORHANDLER.JS (100% coverage) ---
+// --- ТЕСТЫ ERRORHANDLER.JS 
 describe('Error Handler Unit Tests (100% coverage)', () => {
   const CHAT_ID = 999;
-    
-  // Сбрасываем счетчик вызовов sendMessage перед каждым тестом
   beforeEach(() => {
     mockBotInstance.sendMessage.mockClear(); 
     logger.error.mockClear();

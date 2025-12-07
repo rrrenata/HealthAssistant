@@ -16,10 +16,29 @@ const runServer = () => {
   }
 
   const bot = new TelegramBot(token, { polling: true });
+
+  // Глобальные error handlers для polling и бота
+  bot.on('polling_error', (error) => {
+    logger.error('Polling error:', error);
+  });
+
+  bot.on('error', (error) => {
+    logger.error('Bot error:', error);
+  });
+
+  // Глобальные handlers для uncaught ошибок в Node.js
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception:', error);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+
   const sendQuestion = (chatId, stepId) => {
     const step = diagnosisTree[stepId];
 
-    if (!step) {
+    if (!step || !diagnosisTree) {
       bot.sendMessage(chatId, "Ошибка сценария. Начните заново с /symptoms_check");
       clearSession(chatId);
       logger.warn(`Попытка перехода на несуществующий шаг: ${stepId}`, { chatId });
@@ -31,7 +50,8 @@ const runServer = () => {
       clearSession(chatId);
       return;
     }
-    const keyboard = step.buttons.map(row => {
+
+    const keyboard = step.buttons ? step.buttons.map(row => {
       return row.map(btn => {
         const callbackData = JSON.stringify(
           btn.diagnosis 
@@ -43,7 +63,7 @@ const runServer = () => {
           callback_data: callbackData 
         };
       });
-    });
+    }) : [];
 
     bot.sendMessage(chatId, step.question, {
       reply_markup: {
@@ -53,6 +73,7 @@ const runServer = () => {
     setStep(chatId, stepId);
     logger.info(`Сессия ${chatId} перешла на шаг: ${stepId}`);
   };
+
   // 1. Команда /start
   bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
@@ -125,15 +146,29 @@ const runServer = () => {
       handleBotError(bot, e, chatId, 'callback_query handler');
     }
   });
-  // 5. Обработка обычных текстовых сообщений
+
+  // 5. Обработка обычных текстовых сообщений и неизвестных команд
   bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    const text = msg.text;    
-    if (text && !text.startsWith('/') && getStep(chatId)) {
-      bot.sendMessage(chatId, 'Пожалуйста, выберите один из вариантов ответа на вопрос выше.');
-      logger.warn(`Пользователь ${chatId} ввел текст "${text}" во время активной сессии`);
-    } else if (text && !text.startsWith('/')) {
-      bot.sendMessage(chatId, 'Используйте команды /symptoms_check или /find_doctor для начала работы.');
+    const text = msg.text;
+
+    if (text) {
+      if (text.startsWith('/') && !['/start', '/symptoms_check', '/find_doctor'].includes(text)) {
+        bot.sendMessage(chatId, 'Неизвестная команда. Попробуй /start, /symptoms_check или /find_doctor.');
+        logger.warn(`Неизвестная команда от ${chatId}: ${text}`);
+        return;
+      }
+
+      if (!text.startsWith('/') && getStep(chatId)) {
+        bot.sendMessage(chatId, 'Пожалуйста, выберите один из вариантов ответа на вопрос выше.');
+        logger.warn(`Пользователь ${chatId} ввел текст "${text}" во время активной сессии`);
+      } else if (!text.startsWith('/')) {
+        bot.sendMessage(chatId, 'Используйте команды /symptoms_check или /find_doctor для начала работы.');
+      }
+    } else {
+      // Для non-text сообщений (фото, стикеры, видео и т.д.)
+      bot.sendMessage(chatId, 'Извини, я понимаю только текст и команды. Попробуй /start.');
+      logger.warn(`Non-text сообщение от ${chatId}`);
     }
   });
 
